@@ -49,6 +49,19 @@ $wgCloudflareAPIKey = '';
 | $wgCloudflareZoneID    | ""     | サイト（URL）固有の ID （サイトごとのダッシュボードで見ることができます）                                            |
 | $wgCloudflarePurgePage | false  | 記事を更新時に purge する                                                                                            |
 | $wgCloudflarePurgeFile | true   | ファイル（画像）を更新時に purge する                                                                                |
+| $wgCloudflarePurgeFileHostname | null | ファイルの purge URL で使うホスト名（下記参照） |
+
+### ファイル purge 用のホスト名を指定する
+
+ファイルを公開ホスト名（例: `images.example.com`）で配信していても、Cloudflare のキャッシュキーが別のホスト名（例: S3 のオリジン）で作られている場合は、`$wgCloudflarePurgeFileHostname` を設定します。ファイルの purge URL のホスト部分だけが置き換えられ、ユーザーに配信される URL は変わりません。
+
+```php
+$wgCloudflarePurgeFileHostname = 'bucket.s3.us-east-va.io.cloud.ovh.us';
+```
+
+- 値はホスト名のみです（スキーム、ポート、パスは含めません）。`null`（既定値）または空文字列の場合は無効です。不正な値は無視され、警告がログに記録されます。
+- スキーム、ポート、パス、クエリ、フラグメントは変更されません。`https://images.example.com/a/ab/Example.png` は `https://bucket.s3.us-east-va.io.cloud.ovh.us/a/ab/Example.png` として purge されます。
+- 元のファイルとサムネイルの両方が対象です。新しいホスト名とパスが、両方について Cloudflare のキャッシュキーと一致している必要があります。記事ページの purge には影響しません。
 
 ### 記事ページをキャッシュする
 

@@ -6,6 +6,7 @@ use Config;
 use ManualLogEntry;
 use MediaWiki\Hook\LocalFilePurgeThumbnailsHook;
 use MediaWiki\Hook\PageMoveCompleteHook;
+use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\Page\Hook\ArticlePurgeHook;
 use MediaWiki\Page\Hook\PageDeleteCompleteHook;
 use MediaWiki\Page\ProperPageIdentity;
@@ -144,6 +145,75 @@ class HookHandler implements
 	}
 
 	/**
+	 * Get the validated hostname to use in file purge URLs.
+	 *
+	 * @return string|null Null when no override is configured or the value is invalid
+	 */
+	private function getPurgeFileHostname(): ?string {
+		$hostname = $this->config->get( 'CloudflarePurgeFileHostname' );
+		if ( $hostname === null || $hostname === '' ) {
+			return null;
+		}
+		$label = '[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?';
+		if ( !is_string( $hostname )
+			|| strlen( $hostname ) > 253
+			|| !preg_match( "/^$label(\\.$label)*$/D", $hostname )
+		) {
+			LoggerFactory::getInstance( 'cloudflare' )->warning(
+				'Ignoring invalid $wgCloudflarePurgeFileHostname: expected a hostname without scheme, port or path'
+			);
+			return null;
+		}
+		return $hostname;
+	}
+
+	/**
+	 * Replace only the host of a fully-qualified URL. Scheme, user info, port, path,
+	 * query and fragment stay byte-for-byte unchanged.
+	 *
+	 * @param string $url
+	 * @param string|null $hostname
+	 * @return string|null The URL, or null when an override applies and the URL is malformed
+	 */
+	private function replaceHostname( string $url, ?string $hostname ): ?string {
+		if ( $hostname === null ) {
+			return $url;
+		}
+		$pattern = '~^([A-Za-z][A-Za-z0-9+.-]*://)([^@/?#]*@)?'
+			. '(\[(?![^\]]*:::)(?=[^\]]*:)[0-9A-Fa-f:.]+\]|[^:@\[\]/?#]+)(:[0-9]{1,5})?([/?#].*)?$~sD';
+		if ( preg_match( '/[\x00-\x20\x7f]/', $url )
+			|| preg_match( '/%(?![0-9A-Fa-f]{2})/', $url )
+			|| !preg_match( $pattern, $url, $m )
+			|| ( ( $m[4] ?? '' ) !== '' && (int)substr( $m[4], 1 ) > 65535 )
+		) {
+			LoggerFactory::getInstance( 'cloudflare' )->warning(
+				'Skipping malformed file purge URL while $wgCloudflarePurgeFileHostname is set'
+			);
+			return null;
+		}
+		return $m[1] . ( $m[2] ?? '' ) . $hostname . ( $m[4] ?? '' ) . ( $m[5] ?? '' );
+	}
+
+	/**
+	 * Expand a file URL and apply the purge hostname override.
+	 *
+	 * @param string|null $rawUrl
+	 * @param string|null $hostname
+	 * @return string|null Null when the URL cannot be expanded or is malformed
+	 */
+	private function buildFilePurgeUrl( ?string $rawUrl, ?string $hostname ): ?string {
+		if ( $rawUrl !== null && $hostname !== null && preg_match( '/[\x00-\x20\x7f]/', $rawUrl ) ) {
+			// URL expansion would silently turn control characters into underscores
+			LoggerFactory::getInstance( 'cloudflare' )->warning(
+				'Skipping malformed file purge URL while $wgCloudflarePurgeFileHostname is set'
+			);
+			return null;
+		}
+		$expanded = $this->expandURL( $rawUrl );
+		return $expanded === null ? null : $this->replaceHostname( $expanded, $hostname );
+	}
+
+	/**
 	 * Purge local file and thumbnail URLs from Cloudflare cache.
 	 *
 	 * @param \File $file
@@ -156,19 +226,13 @@ class HookHandler implements
 		//上書きアップロードの場合は、古い画像毎に呼び出される
 		if ( $this->config->get( 'CloudflarePurgeFile' ) ) {
 				$purgeUrl = [];
-				$originalUrl = $file->getUrl();
-				$expandedOriginal = $this->expandURL( $originalUrl );
-				if ( $expandedOriginal !== null ) {
-					$purgeUrl[] = $expandedOriginal;
-				}
+				$purgeHostname = $this->getPurgeFileHostname();
+				$allUrls = array_merge( [ $file->getUrl() ], $urls );
 				// オリジナル画像のURLを追加　アーカイブ画像の場合は削除する必要がないが判別方法がわからないので追加
-
-				foreach ( $urls as $url ) {
-					$expandedUrl = $this->expandURL( $url );
-					if ( $expandedUrl !== null ) {
-						$purgeUrl[] = $expandedUrl;
-					}
+				foreach ( $allUrls as $url ) {
+					$purgeUrl[] = $this->buildFilePurgeUrl( $url, $purgeHostname );
 				}
+				$purgeUrl = array_values( array_filter( $purgeUrl, static fn ( $u ) => $u !== null ) );
 				if ( count( $purgeUrl ) > 0 ) {
 					$this->cloudflareAPIRequester->cachePurge( $purgeUrl );
 				}
