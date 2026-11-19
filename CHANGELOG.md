@@ -2,6 +2,12 @@
 
 All notable changes to this extension are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Added `CloudflarePurgeFileHostname` to replace the hostname in file and thumbnail purge URLs.
+
 ## 0.4.0
 
 This release adds Cloudflare API Token authentication support and improves MediaWiki purge handling.

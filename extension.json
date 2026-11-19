@@ -68,6 +68,11 @@
 			"description": "Purge a File from cache",
 			"public": true,
 			"value": true
+		},
+		"CloudflarePurgeFileHostname": {
+			"description": "Hostname to use in file purge URLs instead of the one in the file URL (hostname only, no scheme or path). Null or empty disables the override.",
+			"public": true,
+			"value": null
 		}
 	},
 	"ServiceWiringFiles": [

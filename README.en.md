@@ -40,7 +40,20 @@ $wgCloudflareAPIKey = '';
 | `$wgCloudflareZoneID`    | `""`          | Site (URL) ID (You can get it from the dashboard of the site)                                                           |
 | `$wgCloudflarePurgePage` | `false`       | Purge cache when articles are updated                                                                                   |
 | `$wgCloudflarePurgeFile` | `true`        | Purge cache when files (images) are updated                                                                             |
+| `$wgCloudflarePurgeFileHostname` | `null` | Hostname to use in file purge URLs instead of the one in the file URL. See below. |
 |
+
+### Custom hostname for file purges
+
+If files are served through a public hostname (for example `images.example.com`) but Cloudflare builds the cache key from a different hostname (for example an S3 origin), set `$wgCloudflarePurgeFileHostname`. The extension then replaces only the host of each file purge URL. The URLs served to users do not change.
+
+```php
+$wgCloudflarePurgeFileHostname = 'bucket.s3.us-east-va.io.cloud.ovh.us';
+```
+
+- Value: a hostname only, without scheme, port or path. `null` (default) or an empty string disables the override. An invalid value is ignored and a warning is logged.
+- Scheme, port, path, query and fragment stay unchanged: `https://images.example.com/a/ab/Example.png` is purged as `https://bucket.s3.us-east-va.io.cloud.ovh.us/a/ab/Example.png`.
+- The override applies to original files and thumbnails, so the new hostname and the paths must match what Cloudflare uses for the cache key of both. Page purges are not affected.
 
 ### Caching Article Pages
 
